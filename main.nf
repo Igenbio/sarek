@@ -1719,7 +1719,7 @@ bam_recalibrated = bam_recalibrated.mix(bam_recalibrated_indexed)
 bam_recalibrated_qc = bam_recalibrated_qc.mix(bam_recalibrated_no_int_qc)
 tsv_bam_recalibrated = tsv_bam_recalibrated.mix(tsv_bam_recalibrated_no_int)
 
-(bam_recalibrated_bamqc, bam_recalibrated_samtools_stats) = bam_recalibrated_qc.into(2)
+(bam_recalibrated_bamqc, bam_recalibrated_samtools_stats, bam_recalibrated_picard_metrics) = bam_recalibrated_qc.into(3)
 (tsv_bam_recalibrated, tsv_bam_recalibrated_sample) = tsv_bam_recalibrated.into(2)
 
 // Creating a TSV file to restart from this step
@@ -1767,6 +1767,28 @@ process SamtoolsStats {
 }
 
 samtoolsStatsReport = samtoolsStatsReport.dump(tag:'SAMTools')
+
+process PicardTools {
+    label 'cpus_2'
+    
+    tag "${idPatient}-${idSample}"
+
+    publishDir "${params.outdir}/Reports/${idSample}/PicardTools", mode: params.publish_dir_mode
+
+    input:
+        set idPatient, idSample, file(bam) from bam_recalibrated_picard_metrics
+        file(fasta) from ch_fasta
+
+    output:
+        file ("${bam}.alignment_summary_metrics") into picardMetricsReport
+
+    script:
+    """
+    gatk --java-options -Xmx${task.memory.toGiga()}g CollectAlignmentSummaryMetrics -I ${bam} -O ${bam}.alignment_summary_metrics -R ${fasta}
+    """
+}
+
+picardMetricsReport = picardMetricsReport.dump(tag:'PicardMetrics')
 
 bamBamQC = bamMappedBamQC.mix(bam_recalibrated_bamqc)
 
@@ -3831,6 +3853,7 @@ process MultiQC {
         file ('MarkDuplicates/*') from duplicates_marked_report.collect().ifEmpty([])
         file ('DuplicatesMarked/*.recal.table') from baseRecalibratorReport.collect().ifEmpty([])
         file ('SamToolsStats/*') from samtoolsStatsReport.collect().ifEmpty([])
+        file ('PicardMetrics/*') from picardMetricsReport.collect().ifEmpty([])
         file ('snpEff/*') from snpeffReport.collect().ifEmpty([])
         file ('VCFTools/*') from vcftoolsReport.collect().ifEmpty([])
 
